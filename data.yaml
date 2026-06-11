@@ -1,0 +1,6 @@
+train: dataset/train/images
+val: dataset/valid/images
+
+names:
+  0: case1
+  1: case2
