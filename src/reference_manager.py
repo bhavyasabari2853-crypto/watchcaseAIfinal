@@ -1,12 +1,23 @@
 import os
+import sys
 import cv2
 import numpy as np
 
+# Single Path Manager
+file_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(file_dir)
+
+def data_path(relative_path):
+    if getattr(sys, "frozen", False):
+        base_path = os.path.dirname(sys.executable)
+    else:
+        base_path = project_root
+    return os.path.join(base_path, relative_path)
 
 class ReferenceManager:
-    def __init__(self, ref_dir="references"):
-        self.ref_dir = ref_dir
-        os.makedirs(ref_dir, exist_ok=True)
+    def __init__(self, ref_dir=None):
+        self.ref_dir = ref_dir if ref_dir else data_path("references")
+        os.makedirs(self.ref_dir, exist_ok=True)
         self.orb = cv2.ORB_create(nfeatures=1000)
         self.references = {}
         self.active_name = None
@@ -14,6 +25,8 @@ class ReferenceManager:
 
     def _load_all(self):
         self.references.clear()
+        if not os.path.exists(self.ref_dir):
+            return
         for fname in os.listdir(self.ref_dir):
             path = os.path.join(self.ref_dir, fname)
             if not os.path.isfile(path):
@@ -27,20 +40,26 @@ class ReferenceManager:
                 continue
             kp, des = self.orb.detectAndCompute(img, None)
             self.references[name] = (kp, des)
+            if self.active_name is None:
+                self.active_name = name
         print(f"Loaded {len(self.references)} reference(s) from '{self.ref_dir}'")
 
     def activate(self, name):
-        path = os.path.join(self.ref_dir, f"{name}.jpg")
-        if not os.path.isfile(path):
-            path = os.path.join(self.ref_dir, f"{name}.jpeg")
-        if not os.path.isfile(path):
-            path = os.path.join(self.ref_dir, f"{name}.png")
-        if os.path.isfile(path):
-            img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-            if img is not None:
-                kp, des = self.orb.detectAndCompute(img, None)
-                self.references[name] = (kp, des)
+        name = name.strip()
+        found = False
+        for ext in ('.jpg', '.jpeg', '.png'):
+            path = os.path.join(self.ref_dir, f"{name}{ext}")
+            if os.path.isfile(path):
+                img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+                if img is not None:
+                    kp, des = self.orb.detectAndCompute(img, None)
+                    self.references[name] = (kp, des)
+                    found = True
+                    break
         if name in self.references:
+            self.active_name = name
+            print(f"Active reference set to: {name}")
+        elif found:
             self.active_name = name
             print(f"Active reference set to: {name}")
         else:
@@ -50,6 +69,7 @@ class ReferenceManager:
         return self.active_name
 
     def add(self, image_path, name):
+        name = name.strip()
         ext = os.path.splitext(image_path)[1].lower()
         if ext not in ('.jpg', '.jpeg', '.png'):
             ext = '.jpg'
@@ -58,6 +78,7 @@ class ReferenceManager:
         if img is None:
             raise ValueError(f"Cannot read image: {image_path}")
         cv2.imwrite(dest, img)
+        
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         kp, des = self.orb.detectAndCompute(gray, None)
         self.references[name] = (kp, des)
